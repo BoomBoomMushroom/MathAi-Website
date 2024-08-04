@@ -99,15 +99,27 @@
     const c = document.getElementById("drawingCanvas")
     c.width = window.innerWidth
     c.height = window.innerHeight
-    const ctx = c.getContext("2d")
+    const ctx = c.getContext("2d", { willReadFrequently: true })
 
     var undoStack = []
-    var redoStack = []
     var isMouseDown = false
     var selectedColor = "#000000"
     var brushSize = 1
     var previousCords = {x: -1, y: -1}
     
+    // equal sign detection stuff
+    var mousePositionInDraw = []
+    var slopeToleranceForStraitLine = .5
+    var acceptableDistanceForEqualSign = 30
+    var wasLastDrawingStrait = false
+
+    function reset(){
+        undoStack = []
+        let oldFill = ctx.fillStyle
+        ctx.fillStyle = "#FFFFFF"
+        ctx.fillRect(0,0, c.width, c.height)
+        ctx.fillStyle = oldFill
+    }
 
     function paintAtCords(x, y){
         // circle brush
@@ -133,26 +145,47 @@
         if(undoStack.length == 0){ return } // nothing to undo!
         let previousState = undoStack.pop()
         loadState(previousState)
-        redoStack.push(previousState)
     }
+    
+    function didDrawStrait(positions){
+        let isStrait = true
+        let didWork = false
+        for(let i=5; i<positions.length; i+=5){
+            didWork = true
+            let a = positions[i-5]
+            let b = positions[i]
 
-    function redo(){
-        if(redoStack.length == 0){ return } // nothing to redo!
-        let redoState = redoStack.pop()
-        loadState(redoState)
-        undoStack.push(redoState)
+            let rise = b.y - a.y
+            let run = b.x - a.x
+            let slope = rise / run
+            if(slope > slopeToleranceForStraitLine || slope < -slopeToleranceForStraitLine){
+                isStrait = false
+                break
+            }
+        }
+        if(didWork == false){ return false }
+        return isStrait
     }
-
 
     c.onmousedown = function(e){
         isMouseDown = true;
-        previousCords = {x: -1, y: -1}
+        previousCords = {x: e.pageX, y: e.pageY}
+        mousePositionInDraw = []
         
         let canvasData = ctx.getImageData(0, 0, c.width, c.height)
         undoStack.push(canvasData)
     }
     c.onmouseup = function(e){
         isMouseDown = false;
+
+        isStrait = didDrawStrait(mousePositionInDraw)
+        if(isStrait && wasLastDrawingStrait){
+            
+        }
+
+        wasLastDrawingStrait = isStrait // update for next draw
+
+        paintAtCords(e.pageX, e.pageY)
     }
     
     c.onmousemove = function(e){
@@ -160,10 +193,6 @@
     
         let x = e.pageX;
         let y = e.pageY;
-        if(previousCords.x == -1 && previousCords.y == -1){
-            previousCords.x = x
-            previousCords.y = y
-        }
 
         let depth = calculateDistance(x, y, previousCords.x, previousCords.y)
         let dx = (x - previousCords.x) / depth
@@ -174,8 +203,8 @@
             paintAtCords(nx, ny)
         }
 
-        
         previousCords = {x: x, y: y}
+        mousePositionInDraw.push(previousCords)
         
         return false;
     }
