@@ -1,0 +1,48 @@
+html, body {
+    margin: 0 !important;
+    padding: 0 !important;
+}
+
+body{
+    height: 100vh;
+    margin: 0;
+    font-family: Arial, sans-serif;
+}
+
+
+.hidden{
+    display: none;
+}
+.bottomLeft{
+    position: absolute;
+    left: 0px;
+    bottom: 0px;
+}
+
+.input{
+    text-align: center;
+    font-size: 18px;
+    border: 1px solid #ccc;
+    border-radius: 5px;
+    outline: none;
+    transition: border-color 0.3s;
+}
+
+.join-button {
+    padding: 10px 20px;
+    font-size: 12px;
+    color: #fff;
+    background-color: #007bff;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background-color 0.3s;
+}
+
+.join-button:hover {
+    background-color: #0056b3;
+}
+
+.join-button:disabled {
+    background-color: #6d8195;
+}
