@@ -3,6 +3,7 @@
 
     <script>var exports = {};</script>
     <script src="https://unpkg.com/@google/generative-ai@0.16.0/dist/index.js"></script>
+    <script src="./google-generative-ai0-16-0-server.js"></script>
 </head>
 
 
@@ -107,6 +108,8 @@
     var brushSize = 1
     var previousCords = {x: -1, y: -1}
     
+    var lastResult = null
+
     // equal sign detection stuff
     var mousePositionInDraw = []
     var previousMousePositionInDraw = []
@@ -170,6 +173,8 @@
     }
 
     c.onmousedown = function(e){
+        if(e.button != 0){ return } // we only want the left mouse button
+
         isMouseDown = true;
         previousCords = {x: e.pageX, y: e.pageY}
         previousMousePositionInDraw = mousePositionInDraw
@@ -178,7 +183,9 @@
         let canvasData = ctx.getImageData(0, 0, c.width, c.height)
         undoStack.push(canvasData)
     }
-    c.onmouseup = function(e){
+    c.onmouseup = async function(e){
+        if(e.button != 0){ return } // we only want the left mouse button
+
         isMouseDown = false;
 
         isStrait = didDrawStrait(mousePositionInDraw)
@@ -216,6 +223,28 @@
                     y: Math.min(yAverage, yAveragePrevious)
                 }
 
+                // draw a red equals sign
+                let canvasData = ctx.getImageData(0, 0, c.width, c.height)
+                let oldColor = ctx.fillStyle
+                ctx.fillStyle = "#FF0000"
+                let equalSignMousePositions = mousePositionInDraw.concat(previousMousePositionInDraw)
+                for(let i=0; i<equalSignMousePositions.length;i++){
+                    let position = equalSignMousePositions[i]
+                    paintAtCords(position.x, position.y)
+                }
+                let coloredEqualsSign = c.toDataURL("image/jpeg").split(',')[1]
+                ctx.fillStyle = oldColor
+                loadState(canvasData)
+
+                // send the image data to Google Gemini
+                let binaryString = atob(coloredEqualsSign) // toDataURL turns it into a base64 string
+                let file = await uploadImageToGemini(binaryString)
+                geminiRunPrompt(file, (result)=>{
+                    lastResult = result
+                    console.log(result)
+                }, (e)=>{
+                    console.error(e)
+                })
                 
             }
         }
@@ -249,8 +278,7 @@
 
 <!--  Google Gemini API  -->
 <script>
-    var genAI = new exports.GoogleGenerativeAI(token);
-    var model = null
+    var systemInstructions = ``
 
     const safetySettings = [
         {
@@ -270,6 +298,15 @@
             threshold: exports.HarmBlockThreshold.BLOCK_NONE,
         },
     ];
+    
+
+    var genAI = new exports.GoogleGenerativeAI(token);
+    var model = genAI.getGenerativeModel({
+        model: "gemini-1.5-flash",
+        systemInstruction: systemInstructions,
+        safetySettings
+    })
+    var fileManager = new exports.GoogleAIFileManager(token)
 
     const generationConfig = {
         temperature: 1,
@@ -279,8 +316,6 @@
         responseMimeType: "text/plain",
     };
 
-    var systemInstructions = ``
-
     function setGeminiAiToken(TOKEN){
         genAI = new exports.GoogleGenerativeAI(TOKEN);
         model = genAI.getGenerativeModel({
@@ -288,19 +323,38 @@
             systemInstruction: systemInstructions,
             safetySettings
         })
+        fileManager = new exports.GoogleAIFileManager(token)
     }
 
-    function geminiRunPrompt(prompt, resultFunction, failureFunction){
-        const chatSession = model.startChat({
-            generationConfig,
-            history: [],
+    async function uploadImageToGemini(binaryImage){
+        let uploadResult = await fileManager.uploadFile(binaryImage, {
+            mimeType: "image/jpeg",
+            displayName: "equation.png",
         });
-        chatSession.sendMessage(prompt)
-            .then((result)=>{
-                text = result.response.text()
-                resultFunction(text)
-            })
-            .catch(failureFunction)
+        let file = uploadResult.file
+        console.log("Uploaded file to Google Gemini!")
+        return file
+    }
+
+    async function deleteImageFromGemini(file){
+        await fileManager.deleteFile(file.name);
+    }
+
+    function geminiRunPrompt(image, resultFunction, failureFunction){
+        model.generateContent([
+            {
+                fileData: {
+                    mimeType: image.mimeType,
+                    fileUri: image.uri,
+                }
+            },
+            { text: "Solve the equation with the red equals sign" }
+        ])
+        .then((result)=>{
+            text = result.response.text()
+            resultFunction(text)
+        })
+        .catch(failureFunction)
     }
 
     function printResult(result){
