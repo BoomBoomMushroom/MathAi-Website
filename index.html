@@ -109,9 +109,11 @@
     
     // equal sign detection stuff
     var mousePositionInDraw = []
+    var previousMousePositionInDraw = []
     var slopeToleranceForStraitLine = .5
     var acceptableDistanceForEqualSign = 30
     var wasLastDrawingStrait = false
+    var resultCords = {x: -1, y: -1}
 
     function reset(){
         undoStack = []
@@ -170,6 +172,7 @@
     c.onmousedown = function(e){
         isMouseDown = true;
         previousCords = {x: e.pageX, y: e.pageY}
+        previousMousePositionInDraw = mousePositionInDraw
         mousePositionInDraw = []
         
         let canvasData = ctx.getImageData(0, 0, c.width, c.height)
@@ -180,7 +183,41 @@
 
         isStrait = didDrawStrait(mousePositionInDraw)
         if(isStrait && wasLastDrawingStrait){
-            
+            let xBoundsOfDrawing = [mousePositionInDraw[0].x, mousePositionInDraw[0].x]
+            let yAverage = 0
+            for(let i=0;i<mousePositionInDraw.length;i++){
+                let value = mousePositionInDraw[i].x
+                xBoundsOfDrawing[0] = Math.min(xBoundsOfDrawing[0], value)
+                xBoundsOfDrawing[1] = Math.max(xBoundsOfDrawing[1], value)
+                yAverage += mousePositionInDraw[i].y
+            }
+            yAverage /= mousePositionInDraw.length
+
+            let xBoundsOfPreviousDrawing = [previousMousePositionInDraw[0].x, previousMousePositionInDraw[0].x]
+            let yAveragePrevious = 0
+            for(let i=0;i<previousMousePositionInDraw.length;i++){
+                let value = previousMousePositionInDraw[i].x
+                xBoundsOfPreviousDrawing[0] = Math.min(xBoundsOfPreviousDrawing[0], value)
+                xBoundsOfPreviousDrawing[1] = Math.max(xBoundsOfPreviousDrawing[1], value)
+                yAveragePrevious += previousMousePositionInDraw[i].y
+            }
+            yAveragePrevious /= previousMousePositionInDraw.length
+
+            let minDiff = Math.sqrt(Math.pow(xBoundsOfDrawing[0] - xBoundsOfPreviousDrawing[0], 2))
+            let maxDiff = Math.sqrt(Math.pow(xBoundsOfDrawing[1] - xBoundsOfPreviousDrawing[1], 2))
+            let diffY = Math.sqrt(Math.pow(yAverage - yAveragePrevious, 2))
+            console.log(xBoundsOfDrawing, xBoundsOfPreviousDrawing)
+
+            let range = acceptableDistanceForEqualSign * brushSize
+            if(minDiff <= range && maxDiff <= range && diffY <= range){
+                console.log("equals sign detected")
+                resultCords = {
+                    x: Math.max(xBoundsOfDrawing[0], xBoundsOfDrawing[1], xBoundsOfPreviousDrawing[0], xBoundsOfPreviousDrawing[1]),
+                    y: Math.min(yAverage, yAveragePrevious)
+                }
+
+                
+            }
         }
 
         wasLastDrawingStrait = isStrait // update for next draw
