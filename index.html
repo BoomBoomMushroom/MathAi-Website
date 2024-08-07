@@ -3,7 +3,6 @@
 
     <script>var exports = {};</script>
     <script src="https://unpkg.com/@google/generative-ai@0.16.0/dist/index.js"></script>
-    <script src="./google-generative-ai0-16-0-server.js"></script>
 </head>
 
 
@@ -102,9 +101,10 @@
     c.height = window.innerHeight
     const ctx = c.getContext("2d", { willReadFrequently: true })
 
+    reset()
+
     var undoStack = []
     var isMouseDown = false
-    var selectedColor = "#000000"
     var brushSize = 1
     var previousCords = {x: -1, y: -1}
     
@@ -223,29 +223,69 @@
                     y: Math.min(yAverage, yAveragePrevious)
                 }
 
+
                 // draw a red equals sign
                 let canvasData = ctx.getImageData(0, 0, c.width, c.height)
                 let oldColor = ctx.fillStyle
                 ctx.fillStyle = "#FF0000"
+
                 let equalSignMousePositions = mousePositionInDraw.concat(previousMousePositionInDraw)
                 for(let i=0; i<equalSignMousePositions.length;i++){
                     let position = equalSignMousePositions[i]
                     paintAtCords(position.x, position.y)
                 }
-                let coloredEqualsSign = c.toDataURL("image/jpeg").split(',')[1]
-                ctx.fillStyle = oldColor
-                loadState(canvasData)
+                let coloredEqualsSign = c.toDataURL("image/jpeg")
+
 
                 // send the image data to Google Gemini
-                let binaryString = atob(coloredEqualsSign) // toDataURL turns it into a base64 string
-                let file = await uploadImageToGemini(binaryString)
-                geminiRunPrompt(file, (result)=>{
-                    lastResult = result
+                console.log(coloredEqualsSign)
+                let binaryString = coloredEqualsSign.replace(/^data:image\/jpeg;base64,/, '');
+
+                let image = {
+                    inlineData: {
+                        data: binaryString,
+                        mimeType: "image/jpeg"
+                    }
+                }
+                geminiRunPrompt(image, (result)=>{
+                    result = JSON.parse(result)
+                    let lastResult = result
+
+                    if(result.isSolvable == false){
+                        result.variables = {}
+                        result.finalResult = "This equation is not possible"
+                    }
+                    if(result.doesHaveASolution == false){
+                        result.variables = {}
+                        result.finalResult = "This equation has no solution"
+                    }
+
                     console.log(result)
+
+                    ctx.font = "48px serif"
+
+                    let variables = Object.keys(lastResult.variables)
+                    if(variables.length > 0){
+                        let x = resultCords.x
+                        let y = resultCords.y + (diffY * 5)
+                        for(let i=0; i<variables.length; i++){
+                            let variableName = variables[i]
+                            let variableValue = lastResult.variables[variableName]
+
+                            ctx.fillText(variableName + " = " + variableValue, x, y)
+                            y += 48
+                        }
+                    }
+                    else{
+                        ctx.fillText(lastResult.finalResult, resultCords.x + 10, resultCords.y)
+                    }
                 }, (e)=>{
                     console.error(e)
                 })
                 
+                // load the state before changing equals sign color
+                ctx.fillStyle = oldColor
+                loadState(canvasData)
             }
         }
 
@@ -278,7 +318,14 @@
 
 <!--  Google Gemini API  -->
 <script>
-    var systemInstructions = ``
+    var systemInstructions = `You are a calculator. You WILL follow PEMDAS. You will be given an image with an equation on it. You need to solve the equation that pairs with the red equals sign. You WILL ONLY respond with JSON. Take a deep breath, keep calm, You will do fine. You HAVE to break the problem into steps and list them. Here is an outline you MUST follow for responses
+{
+"steps": [], // list of strings on how you solve said step as well as the name of the step
+"finalResult": 0, // NUMBER, you MUST CALCULATE this value (UNLESS SOLVING FOR VARIABLE)
+"isSolvable": false, // Is this equation possible? ex. 1 = 2
+"doesHaveASolution": false, // does it have a solution? If there is a variable who's value isn't solvable set this to false
+"variables": {x: 0, y: 0, z: 0}, // Put all the variables and their values. Leave this empty, {}, if no variables are being solved for. You will leave variables empty if you are not solving for a variable, ex. x = 2; 5x = ? set variables to {} and final result is 10 (2 * 5)
+}`
 
     const safetySettings = [
         {
@@ -299,14 +346,14 @@
         },
     ];
     
+    var modelName = "gemini-1.5-flash"
 
     var genAI = new exports.GoogleGenerativeAI(token);
     var model = genAI.getGenerativeModel({
-        model: "gemini-1.5-flash",
+        model: modelName,
         systemInstruction: systemInstructions,
         safetySettings
     })
-    var fileManager = new exports.GoogleAIFileManager(token)
 
     const generationConfig = {
         temperature: 1,
@@ -319,37 +366,14 @@
     function setGeminiAiToken(TOKEN){
         genAI = new exports.GoogleGenerativeAI(TOKEN);
         model = genAI.getGenerativeModel({
-            model: "gemini-1.5-flash",
+            model: modelName,
             systemInstruction: systemInstructions,
             safetySettings
         })
-        fileManager = new exports.GoogleAIFileManager(token)
-    }
-
-    async function uploadImageToGemini(binaryImage){
-        let uploadResult = await fileManager.uploadFile(binaryImage, {
-            mimeType: "image/jpeg",
-            displayName: "equation.png",
-        });
-        let file = uploadResult.file
-        console.log("Uploaded file to Google Gemini!")
-        return file
-    }
-
-    async function deleteImageFromGemini(file){
-        await fileManager.deleteFile(file.name);
     }
 
     function geminiRunPrompt(image, resultFunction, failureFunction){
-        model.generateContent([
-            {
-                fileData: {
-                    mimeType: image.mimeType,
-                    fileUri: image.uri,
-                }
-            },
-            { text: "Solve the equation with the red equals sign" }
-        ])
+        model.generateContent(["Solve the equation with the red equals sign", image])
         .then((result)=>{
             text = result.response.text()
             resultFunction(text)
